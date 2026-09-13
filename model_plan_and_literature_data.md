@@ -1266,3 +1266,39 @@ Two parser errors, both caught because the rendered trees "looked wrong":
    the re-render matches the 2018 Cmgui reference (arterial_tree_simulation.png). Note
    hybrid_0d_1d.py's segment lengths inherit the fix automatically (it imports the parser); its
    conduit resistances should be re-checked after rerun.
+
+## 27. Coupling wired: the portal tree solves Q_PV; the 0D responds (2026-09-13)
+
+`hybrid_0d_1d.py` Section 3 now implements the coupling as designed: branch resistances are
+tree-derived (conduit + per-terminal micro lumps m_t = M/w_t from couple_tree), the 5-state
+circuit runs with those resistances (simulate_circuit gained Rs_HV_override), and the HABR
+quasi-steady loop acts on the arterial micro-lump scale k in both sign arms. The calibration
+targets are the POD1-anchored values (DC_POD1: Rs_HA 97.958, Rs_PV 2.615, Rs_HV 0.377) -- the
+generic 300 mL/min-scale values in DC_CALIB are superseded for the coupled runs.
+
+**Verification.** Coupled R_eff reproduces the calibrated resistances exactly on all three
+branches; the baseline coupled run hits the anchors (Q_PV 175.19, Q_HA 31.93); the
+portal-anastomosis stenosis sweep through the tree reproduces the Section 24 series-resistance
+thresholds exactly (none 68.2/74.3, classical 69.0/75.2, canonical 67.5/73.5 % narrowing at
+90/80 % total inflow) -- as it must, since the conduit carries ~0 % of the resistance. The
+coupling's added value is therefore not the thresholds but the SPATIAL field: per-node flows and
+pressures under any root or branch pathology, rendered against the liver envelope
+(`hybrid_0d_1d_scenarios.png`: baseline vs 70 % anastomotic stenosis with the HABR response,
+plus the pressure-field validation scatter).
+
+**Two errors the Section 24 cross-check caught** (the consistency check did its job):
+1. Implementing the root stenosis as an added resistance on EVERY root-to-terminal path (a
+   per-branch element) instead of a true series element at the root shifted the 90 % threshold
+   by ~12 points (80.8 vs 68.2 %). A root stenosis adds ONCE: R_eff(s) = R_anas(s) + R_eff_base.
+2. The pressure walk used the parent inflow instead of the branch flow for each segment,
+   overstating bifurcation drops (validation r 0.428 -> 0.644 after the fix).
+
+**Pressure-field validation vs the 2018 stored solve:** Pearson r = 0.644 on normalised per-node
+drops. The residual disagreement is structural, not numerical: the 2018 solve distributed its
+resistance across tree generations, while this coupling concentrates it at the terminal
+micro-lumps (the Doppler anchors constrain only the TOTAL resistance, not its spatial placement
+-- another identifiability statement for the manuscript). Improving it requires recovering the
+2018 generation-lumped terminal resistances (not stored in the files).
+
+Files: `hybrid_0d_1d.py` (coupling wired; couple_tree gained r_root + pressures with corrected
+semantics), `anastomosis_stenosis_sweep.py` (additive Rs_HV_override), `hybrid_0d_1d_scenarios.png`.

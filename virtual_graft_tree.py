@@ -168,10 +168,15 @@ def liver_envelope(points, alpha_mm=22.0):
     return tris
 
 
-def render_tree(ax, nodes, elems, color, value_of, vmin, vmax, elev=12,
-                azim=-65):
-    """Depth-sorted 2D-projected render: thick trunk segments first, thin
-    distal segments on top with low alpha -- the 2018 Cmgui look."""
+def render_tree(ax, nodes, elems, color, value_of, vmin, vmax, r_ref,
+                elev=12, azim=-65):
+    """Depth-sorted render: thick trunk segments first, thin distal
+    segments on top with low alpha. Line width scales with VESSEL
+    CALIBRE against a global reference radius (r_ref = max radius across
+    all three trees), so the portal/hepatic-venous trunks render visibly
+    fatter than the arterial tree, as the anatomy demands; opacity scales
+    with the flow value. (Earlier revision keyed width to flow, visually
+    flattening the calibre differences -- caught by inspection.)"""
     segs = [(a, b) for a, b in elems if a in nodes and b in nodes]
     segs.sort(key=lambda e: -max(nodes[e[0]]["radius"],
                                  nodes[e[1]]["radius"]))
@@ -180,10 +185,11 @@ def render_tree(ax, nodes, elems, color, value_of, vmin, vmax, elev=12,
         t = (np.log10(max(val, 1e-6)) - vmin) / (vmax - vmin + 1e-12)
         t = float(np.clip(t, 0.0, 1.0))
         r = max(nodes[a]["radius"], nodes[b]["radius"])
+        lw = 0.3 + 7.0 * np.sqrt(max(r, 1e-3) / r_ref)
         ax.plot([nodes[a]["xyz"][0], nodes[b]["xyz"][0]],
                 [nodes[a]["xyz"][1], nodes[b]["xyz"][1]],
                 [nodes[a]["xyz"][2], nodes[b]["xyz"][2]],
-                color=color, lw=0.3 + 3.0 * t,
+                color=color, lw=lw,
                 alpha=0.25 + 0.75 * t, solid_capstyle="round")
     ax.view_init(elev=elev, azim=azim)
     ax.set_proj_type("ortho")
@@ -212,25 +218,27 @@ if __name__ == "__main__":
     panels = {name: fig.add_subplot(1, 4, i + 2, projection="3d")
               for i, (name, _, _) in enumerate(TREES)}
 
-    # transparent liver envelope (alpha shape of all tree points) for the
-    # reader's spatial reference
+    # transparent liver envelope: COMBINED panel only (per-tree panels
+    # stay clean for visualisation, per review), drawn with visible mesh
+    # edges so the surface reads as a reference, not a blob
     all_pts = np.vstack([n["xyz"] for n, _, _ in
                          (data[name] for name, _, _ in TREES)
                          for n in data[name][0].values()])
     env = liver_envelope(all_pts, alpha_mm=22.0)
     if env is not None:
         from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-        for ax in [ax0] + list(panels.values()):
-            pc = Poly3DCollection(env, facecolor="wheat",
-                                  edgecolor="none", alpha=0.10)
-            ax.add_collection3d(pc)
+        pc = Poly3DCollection(env, facecolor="wheat", edgecolor="black",
+                              linewidth=0.12, alpha=0.08)
+        ax0.add_collection3d(pc)
 
+    r_ref = max(n["radius"] for name, _, _ in TREES
+                for n in data[name][0].values())
     for name, prefix, color in TREES:
         nodes, elems, color = data[name]
         render_tree(ax0, nodes, elems, color,
-                    lambda n: n["flow"], -1, np.log10(300.0))
+                    lambda n: n["flow"], -1, np.log10(300.0), r_ref)
         render_tree(panels[name], nodes, elems, color,
-                    lambda n: n["flow"], -1, np.log10(300.0))
+                    lambda n: n["flow"], -1, np.log10(300.0), r_ref)
         panels[name].set_title(f"{name}", fontsize=10)
     ax0.set_axis_off()
     legend = [Line2D([0], [0], color=c, lw=3, label=n)

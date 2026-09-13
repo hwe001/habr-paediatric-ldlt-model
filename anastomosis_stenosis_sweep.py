@@ -128,14 +128,14 @@ MMHG_PER_SEC_FLOW = 1.0 / 60.0
 def simulate_circuit(Rs_HA, R_anas_HA=0.0, R_anas_PV=0.0,
                      t_end_cycles=100, params_shape=None,
                      P_HA_mean_src=None, P_PV_src_override=None,
-                     Rs_PV_override=None):
+                     Rs_PV_override=None, Rs_HV_override=None):
     """5-state graft circuit with series anastomosis resistances. Flow
     branches use the exact exponential map (stiff-safe); pressure states
     use the canonical Euler update. The override parameters exist for the
-    recipient-size spectrum (per-bracket pressures, graft-mass allometry);
-    defaults reproduce the POD1 anchor exactly."""
+    recipient-size spectrum and the 0D-1D coupling (tree-derived branch
+    resistances); defaults reproduce the POD1 anchor exactly."""
     p = dict(DEFAULT_SHAPE_PARAMS if params_shape is None else params_shape)
-    Rs_HV = DC_POD1["Rs_HV"]
+    Rs_HV = DC_POD1["Rs_HV"] if Rs_HV_override is None else Rs_HV_override
     Rs_PV = DC_POD1["Rs_PV"] if Rs_PV_override is None else Rs_PV_override
     Rp_hv_out = DC_POD1["Rp_hv_out"]
     L_HA, L_PV, L_HV = p["L_HA"], p["L_PV"], p["L_HV"]

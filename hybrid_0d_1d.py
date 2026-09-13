@@ -12,7 +12,8 @@ philosophy):
   resistance per branch; segment flows assigned by subtree conductance
   (all terminals at a common sink pressure).
 - The 0D layer owns the ANCHORS and the LAW: the calibrated branch
-  resistances (Rs_HA 97.958, Rs_PV 1.526, Rs_HV 0.242 mmHg*s/mL) and the
+  resistances (POD1-anchored: Rs_HA 97.958, Rs_PV 2.615, Rs_HV 0.377
+  mmHg*s/mL) and the
   Ho 2013 HABR quadratic, as in every other script here.
 - Coupling rule: the calibrated total resistance = conduit (tree) +
   microcirculation lump M (the difference). HABR scales M -- the buffer
@@ -49,9 +50,13 @@ import matplotlib.pyplot as plt
 
 sys.setrecursionlimit(100000)
 
-from virtual_graft_tree import parse_exnode, parse_exelem
+from virtual_graft_tree import parse_exnode, parse_exelem, liver_envelope
 from ldlt_habr_consistent_units import habr_percent_change, MEASURED
 from preop_ba_state import q_pv_preop
+from anastomosis_stenosis_sweep import (
+    DC_POD1, POD1_TARGETS, simulate_circuit, stenosis_resistance,
+    R_ANAS_PV_0,
+)
 
 MU_CP = 3.5
 PA_S_M3_TO_MMHG_S_ML = 7.5003e-9
@@ -146,13 +151,18 @@ def couple_tree(tree, M_total):
     w = {t: Q_base[t] for t in leaves}          # shares sum to 1
     m = {t: M_total / w[t] for t in leaves}
 
-    def solve(m_micro):
-        """R_eff and flows with micro lumps attached at the terminals."""
+    def solve(m_micro, r_root=0.0):
+        """R_eff and flows with micro lumps attached at the terminals.
+        r_root adds a resistance to EVERY root-to-terminal path -- a
+        per-branch element, NOT a series resistor at the root (a root
+        series element carries the total flow and simply adds to the
+        returned R_eff; the earlier "electrically exact" claim here was
+        wrong and shifted the stenosis thresholds)."""
         R_down = {}
         for n in reversed(tree["order"]):
             kids = tree["children"].get(n, [])
             if not kids:
-                R_down[n] = m_micro.get(n, 0.0)
+                R_down[n] = m_micro.get(n, 0.0) + r_root
                 continue
             R_down[n] = sum(
                 1.0 / (tree["segR"][(min(n, c), max(n, c))] + R_down[c])
@@ -178,9 +188,26 @@ def couple_tree(tree, M_total):
             Q = flows(1.0)
         return R_eff, Q
 
+    def pressures(Q, P_root, P_sink=None):
+        """Per-node pressures along the tree given branch flows (used for
+        validation against the 2018 stored pressures). The segment
+        parent->c carries the branch flow Q[c] (an earlier revision used
+        the parent inflow Q[n], overstating bifurcation drops). P_sink is
+        accepted for signature clarity but not imposed: terminal
+        pressures emerge from the accumulated drops (the micro-lump drops
+        are NOT in this walk -- only conduit segment drops -- so terminal
+        node pressures sit just below P_root; the lump drops connect them
+        to P_sinus)."""
+        P = {tree["root"]: P_root}
+        for n in tree["order"]:
+            for c in tree["children"].get(n, []):
+                R = tree["segR"][(min(n, c), max(n, c))]
+                P[c] = P[n] - Q.get(c, 0.0) / 60.0 * R   # Q mL/min -> mL/s
+        return P
+
     R_eff, unit_Q = solve(m)
     return dict(m=m, solve=solve, R_eff=R_eff, leaves=leaves, w=w,
-                unit_Q=unit_Q)
+                unit_Q=unit_Q, pressures=pressures)
 
 
 def render(ax, tree, Q, color, vmin, vmax):
@@ -226,7 +253,7 @@ if __name__ == "__main__":
         stored, model = [], []
         for n, d in t["nodes"].items():
             if n in Q and d["flow"] > 0:
-                stored.append(d["flow"] * FLOW_SCALE)
+                stored.append(d["flow"])  # parser already returns mL/min
                 model.append(Q[n])
         stored, model = np.array(stored), np.array(model)
         r = np.corrcoef(np.log10(stored), np.log10(model))[0, 1]
@@ -235,76 +262,150 @@ if __name__ == "__main__":
               f"median model/stored = {ratio:.3f} "
               f"(root stored = {stored.max():.1f} mL/min)")
 
-    print("\n=== 3. Virtual-surgery scenarios on the arterial tree ===")
-    t = trees["arterial"]
-    change_Ipv = -99.4    # transplant-step portal surge (Section 22)
-    change_Iha = habr_percent_change(change_Ipv)   # -47.6, classical read
-    root_flow_base = 31.93
-    Q_base = t["assign_flows"](root_flow_base)
+    print("\n=== 3. Coupled 0D-1D circuit: branch resistances from the "
+          "trees, Q_PV from the coupled solve ===")
+    print("(calibration targets: POD1-anchored DC_POD1 -- the generic "
+          "300 mL/min-scale DC_CALIB above is superseded here)\n")
+    cp, eff = {}, {}
+    for name, key in (("arterial", "Rs_HA"), ("portal", "Rs_PV"),
+                      ("hepatic venous", "Rs_HV")):
+        t = trees[name]
+        conduit = t["R_down"][t["root"]]
+        cp[name] = couple_tree(t, DC_POD1[key] - conduit)
+        eff[name] = cp[name]["R_eff"]
+        print(f"{name:>14}: coupled R_eff = {eff[name]:.4f} vs calibrated "
+              f"{DC_POD1[key]:.4f} mmHg*s/mL")
 
-    # (a) HABR constriction: micro lump M scaled by 1/(1+changeIha/100)
-    #     (classical direction: portal UP -> arterial flow DOWN)
-    root_flow_habr = root_flow_base * (1.0 + change_Iha / 100.0)
-    Q_habr = t["assign_flows"](root_flow_habr)
+    print("\n--- baseline coupled run (tree-derived branch resistances) ---")
+    base = simulate_circuit(eff["arterial"], Rs_PV_override=eff["portal"],
+                            Rs_HV_override=eff["hepatic venous"])
+    Q_PV_base = base["Q_PV"]
+    print(f"Q_PV={base['Q_PV']:.2f} (175.06), Q_HA={base['Q_HA']:.2f} "
+          f"(31.93), Q_HV={base['Q_HV']:.2f}, converged={base['converged']}")
 
-    # (b) virtual resection: remove a distal subtree of moderate size.
-    # Descend from the root following the largest child until the subtree
-    # covers <= 40% of the tree (the trunk children span nearly everything).
-    big = t["root"]
-    n_total = len(t["nodes"])
-    while True:
-        kids = t["children"].get(big, [])
-        if not kids:
-            break
-        cand = max(kids, key=lambda c: len(subtree_nodes(t, c)))
-        if len(subtree_nodes(t, cand)) <= 0.40 * n_total:
-            big = cand
-            break
-        big = cand
-    removed = subtree_nodes(t, big)
-    removed_set = set(removed)
-    Q_res = t["assign_flows"](root_flow_base)
-    removed_flow = Q_res[big]   # flow entering the resected subtree
-    rerouted = root_flow_base - removed_flow
-    print(f"resected subtree: node {big} ({len(removed)} nodes = "
-          f"{100 * len(removed) / n_total:.0f}% of the tree; its flow "
-          f"{removed_flow:.2f} mL/min = "
-          f"{100 * removed_flow / root_flow_base:.1f}% of baseline "
-          f"re-routes through the remaining {100 - 100 * len(removed) / n_total:.0f}%)")
-    print(f"HABR scenario: changeIpv={change_Ipv}% -> changeIha="
-          f"{change_Iha:.1f}% -> arterial root flow "
-          f"{root_flow_base:.2f} -> {root_flow_habr:.2f} mL/min")
+    print("\n--- portal-anastomosis stenosis through the TREE, HABR "
+          "quasi-steady loop (both sign arms) ---")
 
-    # figure: three panels, drawn inline (colour/width/alpha by log flow)
-    qs_all = np.array([Q_base.get(a, 0.0) for a, b in t["elems"]])
-    qs_all = qs_all[qs_all > 0]
-    vmin, vmax = np.log10(max(qs_all.min(), 1e-4)), np.log10(qs_all.max())
-    nodes = t["nodes"]
-    fig = plt.figure(figsize=(14, 5.0))
-    for i, (title, Q, hide) in enumerate((
-            ("baseline (Q_HA = 31.9 mL/min)", Q_base, set()),
-            (f"HABR constriction (root x{1 + change_Iha / 100:.3f})",
-             Q_habr, set()),
-            (f"virtual resection ({len(removed)} nodes removed)",
-             Q_res, removed_set))):
+    def coupled_sweep_point(s_pct, arm):
+        """Portal stenosis enters the tree at the root; the circuit and
+        HABR respond; iterate the arterial micro-lump scale k to the
+        quasi-steady fixed point."""
+        R_anas = stenosis_resistance(s_pct, R_ANAS_PV_0)
+        # a root stenosis is a TRUE series element: it adds ONCE to the
+        # effective resistance (adding it per terminal path, as an earlier
+        # revision did via solve(r_root=...), defines a different network
+        # and shifted the tolerance thresholds by ~12 points)
+        R_eff_PV = R_anas + cp["portal"]["solve"](cp["portal"]["m"])[0]
+        M_HA = DC_POD1["Rs_HA"] - trees["arterial"]["R_down"][
+            trees["arterial"]["root"]]
+        k = 1.0
+        res = None
+        for _ in range(15):
+            res = simulate_circuit(
+                trees["arterial"]["R_down"][trees["arterial"]["root"]]
+                + k * M_HA, Rs_PV_override=R_eff_PV,
+                Rs_HV_override=eff["hepatic venous"])
+            if not res["converged"]:
+                return None
+            change_Ipv = (Q_PV_base - res["Q_PV"]) / Q_PV_base * 100.0
+            if arm == "none" or abs(change_Ipv) < 1e-6:
+                break
+            changeIha = habr_percent_change(change_Ipv)
+            # classical: portal DOWN -> arterial UP -> k = 1/(1+c) < 1
+            # canonical: portal DOWN -> arterial DOWN -> k = 1/(1-c) > 1
+            k_new = (1.0 / (1.0 + changeIha / 100.0) if arm == "classical"
+                     else 1.0 / (1.0 - changeIha / 100.0))
+            done = abs(k_new - k) / k < 1e-4
+            k = k_new
+            if done:
+                break
+        return dict(s=s_pct, arm=arm, R_eff_PV=R_eff_PV, k=k, res=res)
+
+    arms = ("none", "classical", "canonical")
+    grids = {}
+    for arm in arms:
+        pts = [p for s in np.arange(0, 96, 5)
+               if (p := coupled_sweep_point(float(s), arm)) is not None]
+        grids[arm] = pts
+    base_total = base["Q_HA"] + base["Q_PV"]
+    print(f"\n{'arm':>10} {'90% inflow':>11} {'80% inflow':>11} "
+          f"(Section 24 series-resistance reference: none 68.2/74.3, "
+          f"classical 69.0/75.2, canonical 67.4/73.5)")
+    for arm in arms:
+        tot = np.array([p["res"]["Q_HA"] + p["res"]["Q_PV"]
+                        for p in grids[arm]]) / base_total
+        ss = np.array([p["s"] for p in grids[arm]])
+        th = []
+        for frac in (0.9, 0.8):
+            idx = np.argmax(tot < frac) if np.any(tot < frac) else None
+            th.append(None if idx is None or idx == 0 else
+                      ss[idx - 1] + (tot[idx - 1] - frac) /
+                      (tot[idx - 1] - tot[idx]) * (ss[idx] - ss[idx - 1]))
+        f = [f"{x:.1f}%" if x is not None else ">95%" for x in th]
+        print(f"{arm:>10} {f[0]:>11} {f[1]:>11}")
+
+    print("\n--- portal pressure field vs the 2018 stored pressures ---")
+    Q_ours = {n: q * Q_PV_base for n, q in cp["portal"]["unit_Q"].items()}
+    P_ours = cp["portal"]["pressures"](Q_ours, P_root=POD1_TARGETS["P_PV_src"])
+    stored_drop, our_drop = [], []
+    for n, d in trees["portal"]["nodes"].items():
+        if n in P_ours:
+            stored_drop.append(10.0 - d["pressure"])   # 2018 root was 10 mmHg
+            our_drop.append(POD1_TARGETS["P_PV_src"] - P_ours[n])
+    stored_drop, our_drop = np.array(stored_drop), np.array(our_drop)
+    r_press = np.corrcoef(stored_drop, our_drop)[0, 1]
+    print(f"per-node pressure drops (normalised to each solve's total): "
+          f"n={len(stored_drop)}, Pearson r = {r_press:.3f}")
+
+    # figure: coupled portal tree at baseline vs stenosis + pressure check
+    nodes = trees["portal"]["nodes"]
+    r_ref = max(n["radius"] for n in nodes.values())
+    s_show = 70.0
+    p70 = coupled_sweep_point(s_show, "classical")
+    Q70 = {n: q * p70["res"]["Q_PV"] for n, q in cp["portal"]["unit_Q"].items()}
+    env = liver_envelope(np.vstack([n["xyz"] for n in nodes.values()]),
+                         alpha_mm=22.0)
+    fig = plt.figure(figsize=(14, 4.8))
+    for i, (title, Q) in enumerate((
+            (f"portal tree, baseline (Q_PV = {Q_PV_base:.0f} mL/min)", Q_ours),
+            (f"portal anastomosis {s_show:.0f}% stenosis, coupled solve "
+             f"(Q_PV = {p70['res']['Q_PV']:.0f} mL/min, HABR k = "
+             f"{p70['k']:.2f})", Q70))):
         ax = fig.add_subplot(1, 3, i + 1, projection="3d")
-        for a, b in t["elems"]:
+        if env is not None:
+            from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+            ax.add_collection3d(Poly3DCollection(
+                env, facecolor="wheat", edgecolor="black",
+                linewidth=0.12, alpha=0.08))
+        for a, b in trees["portal"]["elems"]:
             if a not in nodes or b not in nodes:
                 continue
-            if a in hide or b in hide:
-                continue
             q = max(Q.get(a, 0.0), 1e-9)
-            nrm = (np.log10(q) - vmin) / (vmax - vmin + 1e-12)
+            nrm = (np.log10(q) - -1) / (np.log10(300.0) + 1)
             nrm = float(np.clip(nrm, 0.0, 1.0))
+            lw = 0.3 + 7.0 * np.sqrt(
+                max(nodes[a]["radius"], nodes[b]["radius"]) / r_ref)
             ax.plot([nodes[a]["xyz"][0], nodes[b]["xyz"][0]],
                     [nodes[a]["xyz"][1], nodes[b]["xyz"][1]],
                     [nodes[a]["xyz"][2], nodes[b]["xyz"][2]],
-                    color="#b22222", lw=0.4 + 3.5 * nrm,
-                    alpha=0.35 + 0.65 * nrm)
+                    color="#7b2d8b", lw=lw, alpha=0.3 + 0.7 * nrm)
         ax.set_title(title, fontsize=9)
         ax.set_axis_off()
-    fig.suptitle("0D-1D hybrid: patient-specific arterial tree driven by the "
-                 "HABR circuit (colour/width = log flow)", fontsize=10)
+        ax.view_init(elev=12, azim=-65)
+        ax.set_proj_type("ortho")
+    ax = fig.add_subplot(1, 3, 3)
+    tot_o = our_drop.max()
+    tot_s = stored_drop.max()
+    ax.scatter(stored_drop / tot_s, our_drop / tot_o, s=6, alpha=0.4,
+               color="#7b2d8b")
+    ax.plot([0, 1], [0, 1], "k--", lw=0.8)
+    ax.set_xlabel("2018 stored pressure drop (normalised)")
+    ax.set_ylabel("coupled solve pressure drop (normalised)")
+    ax.set_title(f"pressure-field validation (r = {r_press:.3f})", fontsize=9)
+    ax.grid(alpha=0.25)
+    fig.suptitle("0D-1D coupling wired: portal tree solves Q_PV given the "
+                 "0D sinusoidal state; HABR responds (classical arm)",
+                 fontsize=10)
     fig.tight_layout()
     fig.savefig("hybrid_0d_1d_scenarios.png", dpi=150)
     print("\nFigure saved: hybrid_0d_1d_scenarios.png")
