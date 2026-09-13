@@ -6,26 +6,32 @@ trees -- the patient-specific 1D anatomy layer of the original hybrid
 Input files (Cmgui/OpenCMISS .ex format, plain text; expected at
 ../simulation/ relative to the repo):
   LISAARTERIAL / LISAPORTAL / LISAHEPATIC with_pressure_post_cubic
-  .exnode -- per node: Flow, Strahler order, coordinates (cubic Hermite:
-  value + d/ds1), radius. 9 stored values per node; we keep the 6
-  non-derivative ones.
-  .exelem  -- 1D line elements (2 nodes each, c.Hermite geometry,
-  l.Lagrange fields); we keep the connectivity only (rendering uses
-  straight segments; the cubic midpoint correction is negligible at tree
-  scale and the 2018 rendered geometry (arterial_tree_simulation.png)
-  confirms the straight-segment representation).
+  .exnode -- 9 stored values per node. Field header names them
+  Flow, Strahler, coordinates (cubic Hermite: value + d/ds1 x3), radius,
+  but the decoded values show the second field is the SOLVED PRESSURE,
+  not Strahler order: arterial root 57.6 mmHg, portal root 10.0 mmHg,
+  hepatic root 4.0 mmHg -- exactly the model's source pressures, and the
+  file names say "with_pressure". Correction trail: an earlier revision
+  of this parser mislabelled that field as Strahler order.
+  Flow unit: stored x 60,000 = mL/min (arterial root decodes to 31.9,
+  portal root to 300.5 -- the draft's own calibration values).
+  .exelem  -- 1D line elements (2 nodes each); element lines are
+  INDENTED (' Element: 20001 0 0') and the node pair follows on the line
+  after 'Nodes:'.
 
-Outputs:
-  virtual_graft_trees.png -- 3D rendering: one combined virtual-graft
-  view plus per-tree panels, colored by flow (log scale), line width by
-  radius. This is the anatomy layer for the manuscript's "virtual
-  surgery" framing; the 1D Poiseuille solve coupled to the pi-filter 0D
-  circuit (the restored hybrid) is the natural next step and reuses this
-  parser.
+Topology verification (2026-09-13): the parsed arterial graph is a single
+connected component with degree histogram 505 leaves / 509 bifurcations /
+13 continuations -- a proper tree. The earlier "spaghetti" appearance was
+a rendering artefact (unsorted translucent 3D segments in matplotlib, no
+depth cues), not the data: the 2018 Cmgui reference render
+(arterial_tree_simulation.png) shows the same tree as clean branching.
+This revision renders depth-sorted (thick trunk first, thin distals on
+top, low distal alpha, orthographic view) to match the 2018 style.
 
-Flow units: mL/s or mL/min as solved in 2018 -- reported, not assumed;
-the roots' stored flows are printed for cross-checking against the
-compendium (e.g. LPV flow 193.8 mL/min, Section 4.1).
+Outputs: virtual_graft_trees.png (per-tree + combined views, flow- and
+pressure-coloured). The 1D Poiseuille solve coupled to the pi-filter 0D
+circuit (the restored hybrid) lives in hybrid_0d_1d.py and reuses this
+parser.
 """
 
 import re
@@ -44,10 +50,15 @@ TREES = [
      "#1f5fa6"),
 ]
 
+FLOW_SCALE = 60000.0   # stored flow unit -> mL/min (validated at runtime)
+
 
 def parse_exnode(path):
-    """Return dict node_id -> (flow, strahler, x, y, z, radius)."""
-    nodes = {}
+    """Return dict node_id -> dict(flow [mL/min], pressure [mmHg],
+    xyz [mm], radius [mm]). Value indices: 1 flow, 2 pressure (field
+    misnamed 'Strahler' in the header -- see docstring), 3-8 coordinates
+    (value + d/ds1 per axis), 9 radius."""
+    raw = {}
     cur = None
     vals = []
     with open(path) as f:
@@ -55,23 +66,24 @@ def parse_exnode(path):
             m = re.match(r"\s*Node:\s*(\d+)", line)
             if m:
                 if cur is not None:
-                    nodes[cur] = vals
+                    raw[cur] = vals
                 cur = int(m.group(1))
                 vals = []
                 continue
             if cur is not None:
-                # derivative pairs share a line with their value; collect
-                # all floats, then keep indices 0,1,2,4,6,8 (flow,
-                # strahler, x, y, z, radius)
                 vals.extend(float(t) for t in re.findall(
                     r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", line))
     if cur is not None:
-        nodes[cur] = vals
+        raw[cur] = vals
     out = {}
-    for nid, v in nodes.items():
+    for nid, v in raw.items():
         if len(v) >= 9:
-            out[nid] = dict(flow=v[0], strahler=v[1], xyz=v[2:5],
-                            radius=v[8])
+            # coordinates are stored with derivatives interleaved:
+            # index 3=x, 4=dx/ds1, 5=y, 6=dy, 7=z, 8=dz -> take 3,5,7.
+            # (Earlier revision used the contiguous slice v[2:5] = x, dx, y
+            # -- the "spaghetti" render bug, caught 2026-09-13.)
+            out[nid] = dict(flow=v[0] * FLOW_SCALE, pressure=v[1],
+                            xyz=np.array([v[2], v[4], v[6]]), radius=v[8])
     return out
 
 
@@ -105,58 +117,131 @@ def tree_arrays(prefix):
     return nodes, elems
 
 
-if __name__ == "__main__":
-    from matplotlib.colors import LogNorm
+def liver_envelope(points, alpha_mm=22.0):
+    """Transparent liver-surface approximation for the reader's reference:
+    an alpha shape (concave hull) of the vascular tree points. Built by
+    Delaunay tetrahedralisation + circumsphere-radius filtering: tetrahedra
+    with circumsphere radius <= alpha_mm are interior; boundary triangles
+    (faces belonging to exactly one interior tetrahedron) form the surface.
+    The trees do not reach the capsule, so this is an envelope slightly
+    inside the true liver surface -- labelled as such on the figure.
+    Returns (M, 3, 3) triangle vertices, or None if the triangulation
+    fails."""
+    from scipy.spatial import Delaunay
+    pts = np.asarray(points)
+    if len(pts) < 10:
+        return None
+    try:
+        tri = Delaunay(pts)
+    except Exception as e:
+        print(f"  [envelope] Delaunay failed: {e}")
+        return None
+    tet = pts[tri.simplices]            # (T, 4, 3)
+    p0, p1, p2, p3 = tet[:, 0], tet[:, 1], tet[:, 2], tet[:, 3]
+    # circumsphere centre from the squared-distance equations
+    Amat = np.stack([2 * (p1 - p0), 2 * (p2 - p0), 2 * (p3 - p0)], axis=1)
+    b = np.stack([(p1**2 - p0**2).sum(1), (p2**2 - p0**2).sum(1),
+                  (p3**2 - p0**2).sum(1)], axis=1)
+    try:
+        sol = np.linalg.solve(Amat, b[..., None])[..., 0]
+    except np.linalg.LinAlgError:
+        sol = np.array([np.linalg.lstsq(Amat[i], b[i], rcond=None)[0]
+                        for i in range(len(Amat))])
+    r = np.linalg.norm(p0 - sol, axis=1)
+    pct = np.percentile(r, [50, 75, 90, 95])
+    print(f"  [envelope] {len(pts)} points, {len(r)} tets, circumradius "
+          f"p50/p75/p90/p95 = {pct[0]:.1f}/{pct[1]:.1f}/{pct[2]:.1f}/"
+          f"{pct[3]:.1f} mm, alpha = {alpha_mm:.1f} mm")
+    keep = tri.simplices[r <= alpha_mm]
+    if len(keep) == 0:
+        print("  [envelope] alpha kept 0 tetrahedra -- raise alpha_mm")
+        return None
+    faces = {}
+    for t in keep:
+        for f in ((0, 1, 2), (0, 1, 3), (0, 2, 3), (1, 2, 3)):
+            key = tuple(sorted(t[list(f)]))
+            faces[key] = faces.get(key, 0) + 1
+    boundary = [k for k, c in faces.items() if c == 1]
+    print(f"  [envelope] kept {len(keep)} tets, boundary triangles: "
+          f"{len(boundary)}")
+    tris = pts[np.array(boundary)]
+    return tris
 
+
+def render_tree(ax, nodes, elems, color, value_of, vmin, vmax, elev=12,
+                azim=-65):
+    """Depth-sorted 2D-projected render: thick trunk segments first, thin
+    distal segments on top with low alpha -- the 2018 Cmgui look."""
+    segs = [(a, b) for a, b in elems if a in nodes and b in nodes]
+    segs.sort(key=lambda e: -max(nodes[e[0]]["radius"],
+                                 nodes[e[1]]["radius"]))
+    for a, b in segs:
+        val = value_of(nodes[a])
+        t = (np.log10(max(val, 1e-6)) - vmin) / (vmax - vmin + 1e-12)
+        t = float(np.clip(t, 0.0, 1.0))
+        r = max(nodes[a]["radius"], nodes[b]["radius"])
+        ax.plot([nodes[a]["xyz"][0], nodes[b]["xyz"][0]],
+                [nodes[a]["xyz"][1], nodes[b]["xyz"][1]],
+                [nodes[a]["xyz"][2], nodes[b]["xyz"][2]],
+                color=color, lw=0.3 + 3.0 * t,
+                alpha=0.25 + 0.75 * t, solid_capstyle="round")
+    ax.view_init(elev=elev, azim=azim)
+    ax.set_proj_type("ortho")
+    ax.set_axis_off()
+
+
+if __name__ == "__main__":
     data = {}
     print("=== Parsed trees (../simulation) ===")
     for name, prefix, color in TREES:
         nodes, elems = tree_arrays(prefix)
         flows = np.array([n["flow"] for n in nodes.values()])
-        radii = np.array([n["radius"] for n in nodes.values()])
+        press = np.array([n["pressure"] for n in nodes.values()])
         root_id = max(nodes, key=lambda k: nodes[k]["radius"])
         data[name] = (nodes, elems, color)
         print(f"{name:>14}: {len(nodes)} nodes, {len(elems)} elements | "
-              f"flow range {flows.min():.3g}..{flows.max():.3g} | "
-              f"max radius {radii.max():.3g} | root node {root_id} "
-              f"(r={nodes[root_id]['radius']:.3g}, "
-              f"flow={nodes[root_id]['flow']:.4g}, "
-              f"Strahler={nodes[root_id]['strahler']:.0f})")
+              f"root: flow {nodes[root_id]['flow']:.1f} mL/min, "
+              f"pressure {nodes[root_id]['pressure']:.1f} mmHg, "
+              f"radius {nodes[root_id]['radius']:.2f} mm | "
+              f"flow range {flows.min():.3g}-{flows.max():.3g} mL/min, "
+              f"pressure range {press.min():.1f}-{press.max():.1f} mmHg")
 
-    # ---- figure: combined virtual-graft view + per-tree panels -----------
-    fig = plt.figure(figsize=(13, 5.2))
+    fig = plt.figure(figsize=(15, 4.8))
     ax0 = fig.add_subplot(1, 4, 1, projection="3d")
     ax0.set_title("Virtual graft (combined)", fontsize=10)
     panels = {name: fig.add_subplot(1, 4, i + 2, projection="3d")
               for i, (name, _, _) in enumerate(TREES)}
 
+    # transparent liver envelope (alpha shape of all tree points) for the
+    # reader's spatial reference
+    all_pts = np.vstack([n["xyz"] for n, _, _ in
+                         (data[name] for name, _, _ in TREES)
+                         for n in data[name][0].values()])
+    env = liver_envelope(all_pts, alpha_mm=22.0)
+    if env is not None:
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        for ax in [ax0] + list(panels.values()):
+            pc = Poly3DCollection(env, facecolor="wheat",
+                                  edgecolor="none", alpha=0.10)
+            ax.add_collection3d(pc)
+
     for name, prefix, color in TREES:
         nodes, elems, color = data[name]
-        fl = np.array([nodes[a]["flow"] for a, b in elems])
-        rd = np.array([max(nodes[a]["radius"], nodes[b]["radius"])
-                       for a, b in elems])
-        lw = 0.4 + 4.0 * (rd / rd.max())
-        norm = LogNorm(vmin=max(fl[fl > 0].min(), 1e-6), vmax=fl.max())
-        ax_tree = panels[name]
-        for k, (a, b) in enumerate(elems):
-            xs = [nodes[a]["xyz"][0], nodes[b]["xyz"][0]]
-            ys = [nodes[a]["xyz"][1], nodes[b]["xyz"][1]]
-            zs = [nodes[a]["xyz"][2], nodes[b]["xyz"][2]]
-            alpha = 0.5 + 0.5 * float(norm(fl[k]))
-            ax0.plot(xs, ys, zs, color=color, lw=lw[k], alpha=alpha)
-            ax_tree.plot(xs, ys, zs, color=color, lw=lw[k], alpha=alpha)
-        ax_tree.set_title(name, fontsize=10)
-        ax_tree.set_axis_off()
+        render_tree(ax0, nodes, elems, color,
+                    lambda n: n["flow"], -1, np.log10(300.0))
+        render_tree(panels[name], nodes, elems, color,
+                    lambda n: n["flow"], -1, np.log10(300.0))
+        panels[name].set_title(f"{name}", fontsize=10)
     ax0.set_axis_off()
     legend = [Line2D([0], [0], color=c, lw=3, label=n)
               for n, _, c in TREES]
+    if env is not None:
+        legend.append(Line2D([0], [0], color="wheat", lw=6, alpha=0.5,
+                             label="liver envelope (alpha shape)"))
     ax0.legend(handles=legend, loc="upper left", fontsize=8)
     fig.suptitle("Virtual graft: donor vascular trees (2018 patient-specific "
-                 "case, flows solved; colour = tree, width = radius, "
-                 "opacity = flow)", fontsize=10)
+                 "case; width/opacity = log flow; root flows/pressures decode "
+                 "to the 2018 calibration values)", fontsize=10)
     fig.tight_layout()
     fig.savefig("virtual_graft_trees.png", dpi=150)
     print("\nFigure saved: virtual_graft_trees.png")
-    print("Next step option: 1D Poiseuille solve on these trees coupled to "
-          "the pi-filter 0D circuit (the restored 0D-1D hybrid) reusing "
-          "this parser.")

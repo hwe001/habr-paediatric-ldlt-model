@@ -1248,3 +1248,21 @@ the flow-split validation; anastomosis stenosis placed on the tree root and prop
 
 Files: `virtual_graft_tree.py` (new; fixed element parser -- element lines are indented),
 `hybrid_0d_1d.py` (new), `virtual_graft_trees.png`, `hybrid_0d_1d_scenarios.png` (new).
+
+## 26a. Corrections to the tree pipeline (2026-09-13, user-caught)
+
+Two parser errors, both caught because the rendered trees "looked wrong":
+
+1. **The field stored in the "Strahler" slot is the SOLVED PRESSURE, not Strahler order.**
+   Decoded root values: arterial 57.6 mmHg, portal 10.0, hepatic venous 4.0 -- exactly the model's
+   source pressures, and the file names say "with_pressure". Flow (x60,000 = mL/min) was
+   unaffected; every node now carries both flow and pressure, giving a second validation axis
+   (per-node pressures) for the coupled solver.
+2. **Coordinate readout bug:** the .exnode stores coordinates with derivatives interleaved
+   (index 3=x, 4=dx/ds1, 5=y, 6=dy, 7=z, 8=dz). The parser took the contiguous slice
+   (x, dx, y), so the rendered "y" was the x-derivative (~+/-0.7) -- the tree collapsed into a
+   tangled slab ("spaghetti"). Fixed: xyz = (v[2], v[4], v[6]). Verified: single connected
+   component, degree histogram 505 leaves / 509 bifurcations / 13 continuations (arterial), and
+   the re-render matches the 2018 Cmgui reference (arterial_tree_simulation.png). Note
+   hybrid_0d_1d.py's segment lengths inherit the fix automatically (it imports the parser); its
+   conduit resistances should be re-checked after rerun.

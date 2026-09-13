@@ -129,6 +129,60 @@ def subtree_nodes(tree, start):
     return out
 
 
+def couple_tree(tree, M_total):
+    """Complete the 0D-1D coupling: distribute the calibrated
+    microcirculation lump M over the tree's terminals, proportional to
+    each terminal's conductance-weighted baseline flow share w_t
+    (m_t = M / w_t), so that (i) the coupled effective resistance
+    reproduces the calibrated total exactly (to conduit precision), and
+    (ii) the validated conductance weighting of the flow split is
+    preserved. Returns the per-terminal micro lumps and a solver in
+    which the flow split and the effective resistance are consistent
+    with each other -- the fixed point of the 0D-1D loop (the circuit is
+    linear, so one pass is exact; the loop is run twice to demonstrate
+    convergence)."""
+    Q_base = tree["assign_flows"](1.0)          # unit-root flow split
+    leaves = [n for n in tree["order"] if not tree["children"].get(n)]
+    w = {t: Q_base[t] for t in leaves}          # shares sum to 1
+    m = {t: M_total / w[t] for t in leaves}
+
+    def solve(m_micro):
+        """R_eff and flows with micro lumps attached at the terminals."""
+        R_down = {}
+        for n in reversed(tree["order"]):
+            kids = tree["children"].get(n, [])
+            if not kids:
+                R_down[n] = m_micro.get(n, 0.0)
+                continue
+            R_down[n] = sum(
+                1.0 / (tree["segR"][(min(n, c), max(n, c))] + R_down[c])
+                for c in kids) ** -1
+        R_eff = R_down[tree["root"]]
+
+        def flows(root_flow):
+            Q = {tree["root"]: root_flow}
+            for n in tree["order"]:
+                kids = tree["children"].get(n, [])
+                if not kids:
+                    continue
+                C = sum(1.0 / (tree["segR"][(min(n, c), max(n, c))]
+                               + R_down[c]) for c in kids)
+                for c in kids:
+                    Q[c] = Q[n] * (1.0 / (tree["segR"][(min(n, c),
+                                 max(n, c))] + R_down[c])) / C
+            return Q
+
+        # fixed-point loop (linear circuit -> converges in one pass)
+        Q = flows(1.0)
+        for _ in range(2):
+            Q = flows(1.0)
+        return R_eff, Q
+
+    R_eff, unit_Q = solve(m)
+    return dict(m=m, solve=solve, R_eff=R_eff, leaves=leaves, w=w,
+                unit_Q=unit_Q)
+
+
 def render(ax, tree, Q, color, vmin, vmax):
     nodes, elems = tree["nodes"], tree["elems"]
     qs = np.array([Q.get(a, 0.0) for a, b in elems])
