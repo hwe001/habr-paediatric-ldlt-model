@@ -126,17 +126,24 @@ MMHG_PER_SEC_FLOW = 1.0 / 60.0
 
 
 def simulate_circuit(Rs_HA, R_anas_HA=0.0, R_anas_PV=0.0,
-                     t_end_cycles=100, params_shape=None):
+                     t_end_cycles=100, params_shape=None,
+                     P_HA_mean_src=None, P_PV_src_override=None,
+                     Rs_PV_override=None):
     """5-state graft circuit with series anastomosis resistances. Flow
     branches use the exact exponential map (stiff-safe); pressure states
-    use the canonical Euler update."""
+    use the canonical Euler update. The override parameters exist for the
+    recipient-size spectrum (per-bracket pressures, graft-mass allometry);
+    defaults reproduce the POD1 anchor exactly."""
     p = dict(DEFAULT_SHAPE_PARAMS if params_shape is None else params_shape)
-    Rs_PV, Rs_HV = DC_POD1["Rs_PV"], DC_POD1["Rs_HV"]
+    Rs_HV = DC_POD1["Rs_HV"]
+    Rs_PV = DC_POD1["Rs_PV"] if Rs_PV_override is None else Rs_PV_override
     Rp_hv_out = DC_POD1["Rp_hv_out"]
     L_HA, L_PV, L_HV = p["L_HA"], p["L_PV"], p["L_HV"]
     C_sinus, C_hv, Rp_sinus = p["C_sinus"], p["C_hv"], p["Rp_sinus"]
-    P_PV_src = POD1_TARGETS["P_PV_src"]
-    P_HA_mean = POD1_TARGETS["P_HA_src_mean"]
+    P_PV_src = POD1_TARGETS["P_PV_src"] if P_PV_src_override is None \
+        else P_PV_src_override
+    P_HA_mean = POD1_TARGETS["P_HA_src_mean"] if P_HA_mean_src is None \
+        else P_HA_mean_src
     P_HA_amp = POD1_TARGETS["P_HA_src_amp"]
     P_IVC = POD1_TARGETS["P_IVC"]
     period = 60.0 / HR

@@ -1164,3 +1164,87 @@ canonical shown as contrast); %-results insensitive to the mL/min vs /100g label
 
 Files: `anastomosis_stenosis_sweep.py` (new), `stenosis_sweep_figure.png` (new),
 `../parameter_table.md` Section 7 updated.
+
+## 25. Recipient-size spectrum: fixed LLS graft across the infant-to-child range (2026-09-13)
+
+New script `recipient_size_spectrum.py` (+ `recipient_size_spectrum_figure.png`) -- the
+revision-plan Section 3.2 deliverable. The graft circuit is FIXED (Chen-anchored, Section 24's
+5-state calibration; `simulate_circuit` gained additive P_HA_mean_src / P_PV_src_override /
+Rs_PV_override parameters, defaults unchanged); recipient size enters through literature-sourced
+bracket inputs.
+
+**Bracket inputs (literature):** cardiac index 200 / 150 / 125 mL/kg/min for infant / toddler /
+school age (pediatric anaesthesia references: Anesthesia Key, Morgan & Mikhail, OpenAnesthesia);
+MAP 49-62 / 57-71 / 65-78 mmHg, midpoints used (Freeman & Harrington values via Haque & Zaritsky
+2008); heights 68 / 96 / 121 cm (growth-chart medians, approximate); SLV = 706.2 x BSA + 2.4
+(Urata 1995, Du Bois BSA). Graft = 220 g LLS.
+
+**Results (fixed 220 g LLS graft):**
+
+| Bracket | wt (kg) | MAP | Q_HA / Q_PV (mL/min) | CO share | GRWR | GV/SLV |
+|---|---|---|---|---|---|---|
+| infant ~6-9 mo | 7 | 55.5 | 30.7 / 175.5 | **14.7%** | **3.14%** | 88.1% |
+| toddler ~3 y | 15 | 64.0 | 35.9 / 174.2 | 9.3% | 1.47% | 49.9% |
+| child ~7 y | 22 | 71.5 | 40.4 / 173.0 | 7.8% | 1.00% | 35.9% |
+
+(1) **The hyperperfusion exposure is the infant end, quantified.** The graft's absolute inflow is
+nearly size-invariant (set by its own low-resistance circuit), so its share of the recipient's
+cardiac output scales inversely with weight: 14.7% at 7 kg vs 7.8% at 22 kg. The infant bracket
+sits ABOVE the published large-for-size risk threshold (GRWR >= 2.51%: worse survival and HAT, all
+recipients < 1 y -- Ueda 2021, Kyoto, n=160); the older brackets sit below on both GRWR and CO
+share. The model metric and the clinical risk line land on the same end of the spectrum.
+(2) **Anastomosis tolerance is exactly size-invariant.** The HA arterial-flow stenosis thresholds
+(90%/80% of baseline flow) are 44.6%/54.8% narrowing at EVERY bracket: the threshold is a
+resistance ratio (R_anas/Rs_HA), and the driving pressure cancels. Clinically: the modifiable
+factor is anastomosis quality, not recipient size. (3) **Graft-type trade-off at the infant
+bracket** (crude mass-proportional allometry -- order of magnitude only): a 500 g left lobe takes
+24.8% of the infant's CO at GRWR 7.1% (>> Nagata's ~4% vascular-modification threshold) -- the
+model quantifies why metabolic reserve doubles while CO exposure more than doubles, consistent
+with graft-reduction/monosegment practice at this end.
+
+**Caveats.** Reference-table haemodynamics (not transplant-population data); per-size Doppler
+targets do not exist -- the near-size-invariance of absolute graft flows is the argument, but its
+empirical support is the infant cohort only; portal driving pressure fixed at 13 mmHg; the
+calibration anchor keeps the draft's 57.5 mmHg mean (brackets use literature midpoints).
+
+Files: `recipient_size_spectrum.py` (new), `recipient_size_spectrum_figure.png` (new),
+`anastomosis_stenosis_sweep.py` (additive override parameters),
+`../parameter_table.md` Section 7 updated.
+
+## 26. The 0D-1D hybrid restored: HABR circuit coupled to the 2018 patient-specific trees (2026-09-13)
+
+New scripts `virtual_graft_tree.py` (parser/renderer for the 2018 Cmgui-format Lisa trees in
+../simulation/) and `hybrid_0d_1d.py` (the coupling). The trees parse fully: ~1,030 nodes/elements
+per tree (arterial / portal / hepatic venous), cubic-Hermite geometry, with per-node Flow,
+Strahler order, radius. Stored flows decode as x60,000 = mL/min: the arterial root = 31.9 and the
+portal root = 300.5 mL/min -- exactly the draft's own calibration values, confirming the 2018
+solve and its scale.
+
+**Coupling design (quasi-steady, per the repo's discrete-HABR philosophy):** the 1D layer owns
+space -- per-segment Poiseuille resistances (stored radii/coordinates, mu = 3.5 cP), tree-reduced
+bottom-up to effective conduit resistance, segment flows assigned by subtree conductance at a
+common sink. The 0D layer owns the anchors (calibrated branch resistances) and the HABR law.
+Coupling rule: calibrated total = conduit + microcirculation lump M; HABR scales M (the buffer
+response is arteriolar, not conduit), and the resulting root flow re-solves the tree.
+
+**Findings.** (1) The 2018 trees are pure conduit: the reduced tree resistance is ~0.01% of the
+calibrated totals on all three branches -- physiologically correct (large vessels are transparent
+pipes) and the quantitative justification for HABR acting on the microcirculation lump: the 0D
+resistance IS the microcirculation, the tree carries its spatial distribution. (2) Flow-split
+validation vs the 2018 stored flows: log-log r = 0.71 (arterial) / 0.63 (portal), with a
+systematic ~12x terminal-flow deviation -- the 2018 solve used heterogeneous terminal conditions
+(generation-lumped resistances, not stored in the files); the reconstruction is therefore
+topologically exact but hydraulically approximate, honestly stated. (3) Virtual-surgery scenarios
+on the arterial tree (`hybrid_0d_1d_scenarios.png`): (a) HABR constriction -- transplant-step
+portal surge (changeIpv = -99.4%, classical read: changeIha = -47.6%) constricts the
+microcirculation and scales the whole tree's flows x0.524 (uniform, as physiology requires);
+(b) virtual resection -- a 348-node distal subtree (34% of the tree, 3.9% of baseline flow)
+removed; its flow re-routes through the remaining tree, the non-uniform spatial response the 0D
+model alone cannot show.
+
+**Next refinements (not blocking):** full bidirectional iteration (tree R_eff -> 0D -> HABR ->
+tree per quasi-steady step); the 2018 generation-lumped terminal resistances recovered to close
+the flow-split validation; anastomosis stenosis placed on the tree root and propagated spatially.
+
+Files: `virtual_graft_tree.py` (new; fixed element parser -- element lines are indented),
+`hybrid_0d_1d.py` (new), `virtual_graft_trees.png`, `hybrid_0d_1d_scenarios.png` (new).
