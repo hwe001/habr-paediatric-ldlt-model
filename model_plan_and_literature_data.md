@@ -1302,3 +1302,55 @@ micro-lumps (the Doppler anchors constrain only the TOTAL resistance, not its sp
 
 Files: `hybrid_0d_1d.py` (coupling wired; couple_tree gained r_root + pressures with corrected
 semantics), `anastomosis_stenosis_sweep.py` (additive Rs_HV_override), `hybrid_0d_1d_scenarios.png`.
+
+## 28. Literature refresh (2026-09-13) and two citation corrections
+
+**Citation corrections caught by the refresh:**
+
+1. **The Kim DOI was wrong.** The HA-calibre assumption (1.2 mm, non-BA infant controls) cites
+   Kim et al., Radiology 2007;245(2):549-555 ("Hepatic arterial diameter measured with US:
+   adjunct for US diagnosis of biliary atresia") -- the paper is retained -- but the DOI
+   previously attached (10.1148/radiol.2452061093) belongs to Kataoka et al. ("Detection of
+   hepatic metastases", Radiology 245(1):142-9). DOI removed from all docstrings; author list to
+   verify on PubMed at proof stage. Modern normative alternative added: Jeon MJ, Huh HJ, Ahn E,
+   Yoo JH, Yum HK, Kim N. Ultrasonography 2019;38(2):146-153, doi:10.14366/usg.18031
+   (age-stratified HA/PV diameters in children, open access).
+2. **"Ueda 2021, Pediatr Transplant" as the GRWR >=2.51% threshold source is UNVERIFIED.** The
+   verified Ueda 2021 Pediatr Transplant paper (25(7):e14071) is a prothrombotic-conditions
+   study. The 160-recipient Kyoto LFS/ROC-2.51% cohort study could not be pinned to a citation
+   in three searches (a Surgery Today 2022 hit with a matching title is Furukawa et al.'s adult
+   case report, doi:10.1007/s00595-021-02341-w). The manuscript re-anchors to "a reported
+   large-for-size risk cutoff near GRWR ~2.5%" with a pending-verification flag; the model
+   numbers (3.14% vs ~2.5%) are unchanged.
+3. **Nagata 2006 journal corrected**: Transplant International 19(2):136-141,
+   doi:10.1111/j.1432-2277.2005.00175.x ("Pediatric living donor right lobe liver
+   transplantation with a small-for-size graft") -- not Am J Transplant. Notably it contains a
+   GRWR-2.51% right-lobe case with SFSS and HAT -- possibly the number's true origin.
+
+**New verified references entering the manuscript (2019-2025 unless noted):**
+
+- Braat AE, et al. The hepatic arterial buffer response: diagnostic and prognostic value in
+  liver transplantation. Am J Transplant 2013;13(5):1266-72, doi:10.1111/ajt.12203 -- HABR
+  present in 81.5% of 130 human LDLT recipients; its absence associates with a 2.6x increase in
+  non-anastomotic biliary strictures. Clinical HABR anchor.
+- Li L, Beard DA, Dash RK. Assessment of the hepatic arterial buffer response in rats and the
+  role of adenosine. Front Physiol 2019;10:670, doi:10.3389/fphys.2019.00670 -- re-analysis
+  concluding the HA flow increase is INDEPENDENT of portal flow, questioning the
+  adenosine-washout hypothesis. Strengthens the manuscript's sign-question framing.
+- Ho 2013 exact citation VERIFIED: Med Eng Phys 2013;35(8):1053-8,
+  doi:10.1016/j.medengphy.2012.09.008, title "Modelling the hepatic arterial buffer response in
+  the liver".
+- HAT rates: Boudabbous et al., J Pediatr Surg 2023 -- 9.9% HAT in 233 infants (2010-2019),
+  78.3% within the first month; Nguyen et al., J Pediatr Surg 2025 -- 8.9% across 3,452 infant
+  recipients (2008-2021), 14.5% in living-donor grafts; Bekker et al., Front Surg 2022 review
+  (5-18% in children). Anchors the introduction's clinical paragraph.
+- Recent modelling (positioning): Eipel O, Jara M, Schnitzbauer AA, et al., J Clin Med 2021 --
+  0D lumped arterial-tree model for replaced-RHA grafts, pressure drop >5 mmHg predicting late
+  HAT [vol/pages pending]; Jozsa TI, et al., Sci Rep 2021 -- extended 1D model of transplantation
+  scenarios validated against Doppler on 55 livers [article no pending]; Zaky AA, et al.,
+  Comput Methods Programs Biomed 2022 -- 0D/3D coupled graft microcirculation [vol/pages
+  pending].
+
+Remaining pending after this refresh: exact author lists/volumes for the five flagged entries
+plus Bonfiglio 2010 and White 2016 (two reviewer-suggested refs whose exact citations a search
+could not confirm) and Lee 2013 / Haque & Zaritsky 2008 details.

@@ -11,7 +11,9 @@ HABR-actuated arterial bed resistance) and Rs_PV:
     R_anas(s) = R_anas(0) / (1 - s)^4      (Poiseuille, diameter stenosis s)
 
 with R_anas(0) = 8*mu*L / (pi r^4) anchored to the model's existing vessel
-calibres: HA r0 = 0.06 cm (Kim et al. 2007, the model's HA assumption) and
+calibres: HA r0 = 0.06 cm (Kim et al., Radiology 2007;245(2):549-555 --
+the model's HA assumption; its previously attached DOI was wrong and was
+removed 2026-09-13) and
 PV r0 = 0.23 cm (Chen et al. POD1 diameter), anastomosis length 2 mm
 (assumed; flagged), blood viscosity 3.5 cP (adult value; infant
 post-operative polycythaemia pushes it higher -- R scales linearly in mu,
@@ -71,7 +73,7 @@ MU_BLOOD_CP = 3.5          # adult blood viscosity (caveat: infant Hct higher)
 L_ANASTOMOSIS_CM = 0.2     # 2 mm anastomosis segment (assumed)
 PA_S_M3_TO_MMHG_S_ML = 7.5003e-9
 
-HA_DIAMETER_CM = 0.12      # Kim et al. 2007 -- the model's existing HA calibre
+HA_DIAMETER_CM = 0.12      # Kim et al., Radiology 2007;245(2):549-555 -- the model's HA calibre
 PV_DIAMETER_CM = PV_DIAMETER_POD1_CM  # 0.46 cm, Chen et al. POD1
 
 

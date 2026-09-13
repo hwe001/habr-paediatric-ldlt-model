@@ -10,13 +10,18 @@ Fix: Q_HA is now calibrated as a real, mL/min-consistent volumetric flow
 hepatic-artery cross-sectional area to convert between flow and Doppler
 velocity -- exactly the same kind of conversion Chen et al. use for the
 portal vein, and exactly what the reviewer's Option A requires. The area
-is not invented: Kim et al. (2007, Radiology, doi:10.1148/radiol.2452061093)
-report right hepatic artery diameter 1.2 +/- 0.2 mm in a healthy
-(non-jaundiced) control group of infants (mean age 67 days). This is the
-best available published paediatric HA calibre reference we located; it
-is a NATIVE, disease-free artery in a slightly younger cohort than ours,
-not a measurement of this cohort's own graft artery at the anastomosis --
-an assumption, flagged as such, not a measured quantity for this cohort.
+is not invented: Kim et al. (Radiology 2007;245(2):549-555, "Hepatic
+arterial diameter measured with US: adjunct for US diagnosis of biliary
+atresia") report HA diameter ~1.2 mm in non-biliary-atresia infant
+controls. CORRECTION (2026-09-13 literature refresh): the DOI previously
+attached here (10.1148/radiol.2452061093) belongs to Kataoka et al.
+(hepatic metastases, Radiology 245(1):142-9) -- a citation error, now
+removed; verify the exact author list on PubMed at proof stage. A modern
+age-stratified alternative is Jeon et al. (Ultrasonography
+2019;38(2):146-153, doi:10.14366/usg.18031). This is a NATIVE,
+disease-free artery in a younger cohort than ours, not a measurement of
+this cohort's own graft artery at the anastomosis -- an assumption,
+flagged as such, not a measured quantity for this cohort.
 
 With A_HA fixed from this literature value, Rs_HA and L_HA are calibrated
 (2 unknowns, 2 targets: real PSV_HA and RI_HA at POD1) in the SAME
@@ -43,10 +48,11 @@ MEASURED = {
     "POD30": {"PSV_HA": 38.51, "RI_HA": 0.59, "PVV": 26.71},
 }
 
-# Kim et al. 2007 (Radiology, doi:10.1148/radiol.2452061093), healthy
-# (non-jaundiced) infant control group: right hepatic artery diameter
-# 1.2 +/- 0.2 mm. An assumption for THIS cohort's graft artery, not a
-# measurement of it -- flagged explicitly, see module docstring.
+# Kim et al., Radiology 2007;245(2):549-555 (HA diameter for biliary
+# atresia diagnosis; non-BA infant controls ~1.2 mm). The DOI previously
+# attached (10.1148/radiol.2452061093) belonged to Kataoka et al. --
+# removed 2026-09-13. An assumption for THIS cohort's graft artery, not a
+# measurement of it -- see module docstring.
 HA_DIAMETER_CM = 0.12
 A_HA_CM2 = np.pi * (HA_DIAMETER_CM / 2.0) ** 2  # ~0.0113 cm^2
 
@@ -175,7 +181,7 @@ def find_Rs_HA_for_target_flow(target_mean_Q_mLmin, P_HA_amp, Q_PV_mLmin, L_HA, 
 
 
 if __name__ == "__main__":
-    print(f"Assumed HA diameter: {HA_DIAMETER_CM*10:.1f} mm (Kim et al. 2007, "
+    print(f"Assumed HA diameter: {HA_DIAMETER_CM*10:.1f} mm (Kim et al., Radiology 2007;245(2):549-555, "
           f"healthy infant control group), area={A_HA_CM2:.5f} cm^2\n")
 
     v_pv_pod1 = MEASURED["POD1"]["PVV"]
