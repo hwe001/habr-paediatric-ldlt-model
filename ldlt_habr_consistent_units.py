@@ -30,6 +30,13 @@ from scipy.optimize import minimize, brentq
 from pi_filter_healthy_infant_model import TARGETS, solve_dc_resistances, DEFAULT_SHAPE_PARAMS, MMHG_PER_SEC_FLOW
 
 MEASURED = {
+    # Pre-operative biliary-atresia state (Chen et al. 2022, Tables 1-2).
+    # Added for the pre-op -> POD1 transplant-step analysis (preop_ba_state.py):
+    # the cirrhotic native liver's high arterial velocity/resistance and low
+    # portal velocity. PV diameter pre-op is 0.44 +/- 0.09 cm (vs 0.46 at
+    # POD1); the pre-op portal-flow conversion uses that value.
+    "Pre-op": {"PSV_HA": 73.32, "RI_HA": 0.77, "PVV": 16.88,
+               "PV_DIAMETER_CM": 0.44},
     "POD1":  {"PSV_HA": 53.10, "RI_HA": 0.61, "PVV": 30.80},
     "POD7":  {"PSV_HA": 47.02, "RI_HA": 0.59, "PVV": 30.05},
     "POD14": {"PSV_HA": 42.29, "RI_HA": 0.59, "PVV": 28.39},

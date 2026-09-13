@@ -997,3 +997,170 @@ prescribed (rather than frozen-at-POD1) time-varying systemic pulse amplitude
 or R_out could recover the missing 80% of the PSV_HA decline and the RI_HA
 direction -- i.e., whether "other systemic recovery" is a viable, testable
 mechanism rather than just a residual left unexplained.
+
+## 22. Pre-operative BA state folded in; transplant-step transition analysed (2026-09-13)
+
+New script `preop_ba_state.py`, plus an additive `MEASURED["Pre-op"]` entry in
+`ldlt_habr_consistent_units.py` (PSV 73.32, RI 0.77, PVV 16.88, pre-op PV diameter 0.44 cm --
+Chen et al. Tables 1-2). Motivation: the revision-plan validation target "the transplant step
+reproduces the portal-flow doubling" requires the model to span the transplant event itself, not
+start at POD1.
+
+**Pre-op calibration works exactly.** The HA branch (Rs_HA, L_HA, P_HA_amp) fits the cirrhotic
+targets to residual ~1e-26: Rs_HA=106.37 mmHg*s/mL, L_HA=0.169, P_HA_amp=33.96 mmHg, with the
+cirrhotic bed absorbed into the effective arterial parameters (healthy-graft downstream held fixed,
+per the Section 18 "absorbed into the fit" philosophy). Notably the fitted pre-op mean arterial flow
+(30.6 mL/min) is nearly the post-transplant value (31.9): the high pre-op PSV is carried by
+waveform shape, not mean flow. A forward-Euler stability pre-check (Rs*dt/L <= 1.8) was added to
+the fitting objectives after unstable starts overflowed the integrator.
+
+**The portal-flow doubling is reproduced from cohort data:** Q_PV(pre-op) = 87.78 mL/min
+(PVV 16.88, D 0.44) -> Q_PV(POD1) = 175.06 (PVV 30.80, D 0.46) = x1.994.
+
+**Transition scenarios (pre-op fitted state, portal flow swapped to POD1):**
+
+| Scenario | PSV_HA (cm/s) | vs. measured 20.22 cm/s decline |
+|---|---|---|
+| Measured | 73.32 -> 53.10 | (-27.6%) |
+| S1 null (Rs_HA frozen) | 72.57 | explains 3.7% |
+| S2 HABR applied, canonical convention | 109.04 | explains -176.6% (opposes the decline) |
+
+**The sign tension is the substantive finding.** The canonical convention
+(`change_Ipv=(Q_ref-Q_new)/Q_ref*100`, `target=baseline*(1-changeIha/100)`) implements positive
+portal->arterial flow coupling: applied to POD1->POD30 (both declining) it explains part of the
+measured PSV decline (Sections 18-19, 13-31%); applied to the transplant step (portal x1.994) the
+same convention drives arterial flow UP 48% (PSV 109), opposite to the measured decline. Classical
+HABR (negative coupling: portal up -> arterial down) is directionally consistent with the
+transplant step but inconsistent with the POD1->30 decline. **No single-sign coupling of this form
+explains both windows** -- which extends the manuscript's central thesis (HABR's quantitative
+contribution cannot currently be established) to the transplant event itself, and sharpens the
+Section 3.2 attribution gap: the measured PSV drop at transplant is dominated by mechanisms outside
+the prescribed-portal-flow coupling (graft-bed replacement), and the RI drop (0.77 -> 0.61) is
+unreachable without a cirrhotic-bed parameter. Awaiting Harvey's reading of the sign convention
+before any manuscript use.
+
+**Caveats:** (1) the pre-op admissible-family scan found exact fits only at P_HA_amp = 34-40 mmHg
+with the scanned starts (the scan is start-sensitive; the family is narrower than the post-LDLT
+one but was not exhaustively mapped); (2) the pre-op state shares the 57.5 mmHg mean arterial
+source-pressure assumption (same child pre/post, not measured separately); (3) the downstream is
+held at healthy-graft parameters throughout -- the structural note in the script output states
+this; the natural next extension is a cirrhotic-bed resistance scale (on Rs_HV/Rp_sinus) at pre-op,
+which would let the model attribute the RI drop mechanically rather than absorbing it.
+
+Files: `preop_ba_state.py` (new), `ldlt_habr_consistent_units.py` (MEASURED["Pre-op"] added),
+`../parameter_table.md` Section 7 updated.
+
+## 23. Cirrhotic-bed parameter added; transplant-step attribution analysed (2026-09-13)
+
+New script `preop_ba_cirrhotic_bed.py`. The Section 22 structural limitation (cirrhotic bed
+absorbed into the pre-op arterial fit) is now explicit: `k_bed >= 1` scales Rs_HV (the sinusoid ->
+hepatic-vein series resistance, the intrahepatic outflow path cirrhosis obstructs) at pre-op; the
+transplant step sets k_bed -> 1 (graft replaces the bed). Rp_hv_out and the pi-filter topology
+leak Rp_sinus are deliberately not scaled; fibrotic stiffness (a C_sinus reduction) is not
+modelled. Four transition arms per family member: null (no arterial response), required
+(sign-agnostic best-fit of Rs_HA to the MEASURED POD1 state), habr_canonical (convention verbatim),
+habr_classical (same quadratic magnitude, classical buffer sign for a portal-flow increase).
+
+**Finding 1 -- k_bed is non-identifiable from the pre-op Doppler targets.** Exact pre-op fits
+(PSV 73.32, RI 0.77) exist across the entire scanned range k_bed = 1-8 (P_HA_amp 40-60 mmHg on
+these starts; 21 cells). Doppler indices alone cannot infer cirrhotic-bed severity in this
+circuit -- k_bed joins the round-3 non-identifiable set (Rs_HA, L_HA, P_HA_amp).
+
+**Finding 2 -- the measured transition is infeasible for ANY single arterial-resistance change,
+in either sign convention.** Holding the pre-op arterial waveform shape (L_HA, P_HA_amp) fixed
+and varying only Rs_HA at POD1 (healthy bed, prescribed portal surge):
+
+| Arm | PSV, % of measured 20.22 cm/s decline | RI at POD1 | Rs_new/Rs_pre |
+|---|---|---|---|
+| Measured | 100 % (PSV 53.10) | 0.61 | -- |
+| null | [-10.0, +3.7] % | [0.749, 0.778] | 1.0 |
+| required (best compromise) | [49.1, 87.8] % | [0.795, 0.834] | [1.20, 1.40] (median x1.28) |
+| habr_canonical | [-146.8, -117.0] % | [0.628, 0.708] | dilatation |
+| habr_classical | [+141.9, +163.8] % | [0.824, 0.941] | constriction |
+
+The PSV target (53.10, demands constriction) and the RI target (0.61, demands the opposite)
+pull in OPPOSITE directions along the single-knob Rs_HA curve: the required arm plateaus at a
+x1.28 compromise with BOTH targets missed (distance ~1e-1), and neither HABR sign application
+lands near the measured state. Within this structure (fixed L_HA, P_HA_amp; one-knob bed;
+prescribed portal flow), the transplant-step transition cannot be produced by any arterial
+resistance mechanism -- HABR included, under either sign reading.
+
+**Interpretation.** Feasibility is not in question globally: the canonical POD1 anchor
+(`ldlt_habr_consistent_units.py`) hits both POD1 targets exactly -- but from a completely
+different (Rs_HA, L_HA, P_HA_amp) corner. The measured transplant-step transition therefore
+requires coordinated changes in arterial waveform parameters (L_HA, P_HA_amp) and/or downstream
+structure beyond an Rs_HV scale -- i.e. the "graft replacement" component is multi-dimensional,
+and the HABR contribution at the transplant step cannot be isolated even with an explicit bed
+parameter. This extends the manuscript's central thesis (calibre-growth uncertainty dominates the
+POD1->30 attribution) to the transplant event itself: across the transplant, structural change
+swamps any flow-coupling signal.
+
+**Unit-convention note (prevents confusion across scripts).** The Rs_HA = 0.8284 / 0.849 / 0.952
+values in Sections 12 and 18 are from `ldlt_habr_on_pi_filter.py` (superseded), where Rs_HA is a
+MULTIPLIER on the baseline resistance. All Section 22-23 fits are on the absolute scale of
+`ldlt_habr_consistent_units.py` / `pi_filter_healthy_infant_model.py`
+(BASE_PARAMS Rs_HA = 97.958 mmHg*s/mL), where the pre-op family sits at Rs_HA ~ 100-106.
+
+**Caveats.** One-knob bed (no stiffness); portal flow prescribed; pre-op exact fits not found
+below P_HA_amp = 40 on the scanned starts (start-sensitivity, cf. Section 22); k_bed identified
+only through its non-identifiability -- no independent severity constraint. Files:
+`preop_ba_cirrhotic_bed.py` (new), `../parameter_table.md` Section 7 updated.
+
+## 24. Anastomosis-stenosis parameter and the graft-tolerance sweep (2026-09-13)
+
+New script `anastomosis_stenosis_sweep.py` (+ `stenosis_sweep_figure.png`) -- the revision-plan
+"allowable obstruction" deliverable. The anastomosis is a fixed structural resistance in series
+with the inflow branch, Poiseuille-parameterised by DIAMETER stenosis s:
+R_anas(s) = R_anas(0)/(1-s)^4, R_anas(0) = 8*mu*L/(pi r^4) with mu = 3.5 cP, L = 2 mm (assumed),
+r0 = 0.06 cm (HA, the model's Kim 2007 calibre) / 0.23 cm (PV, Chen POD1). Sanity anchors hold:
+a healthy HA anastomosis is 1.05% of Rs_HA, reaches ~Rs_HA near 70% narrowing; the PV anastomosis
+is 0.18% of Rs_PV.
+
+Circuit: the 5-state model (Q_PV must be a state for PV stenosis to act), recalibrated at the
+POD1-anchored state: Q_PV = 175.06 mL/min (Section 12 convention), Q_HA = 31.93 (v4 draft
+post-transplant mean), Q_HV = Q_PV + Q_HA (the source's ~3% mass-balance gap is CLOSED by
+conservation -- a modelling choice, flagged). Numerical: the stenosis resistance makes the flow
+branches stiff (Euler unstable beyond ~76% HA narrowing at the default dt), so the flow branches
+use their exact exponential map over each dt; pressure states keep the canonical Euler update.
+Verification at s=0: Q_PV 175.19 vs 175.06 target (0.07%).
+
+HABR: quasi-steady discrete loop (run -> change_Ipv vs the unstenosed baseline -> Rs_HA update ->
+re-run -> fixed point), in both sign arms (classical buffer / canonical convention, per Sections
+22-23). The loop is gated to PV stenosis only (portal-flow-triggered mechanism); HA-only narrowing
+keeps Rs_HA frozen -- the HA curve is the uncompensated structural test. (An earlier ungated
+version accidentally let the tiny P_sinus-mediated portal perturbation drive a spurious full
+arterial compensation on the HA side; caught by inspecting the Rs_HA column and gated.)
+
+**The metric matters (methodological point for the manuscript).** For HA stenosis, TOTAL graft
+inflow is misleading: the portal inflow rises as P_sinus falls (175 -> 183 mL/min across the
+sweep) and props total inflow at >= 90% even while the arterial supply collapses to 13% of
+baseline. HA thresholds are therefore reported on ARTERIAL flow; PV thresholds on total inflow.
+
+**Allowable stenosis (diameter narrowing at which the metric falls below threshold):**
+
+| Vessel | Metric | Arm | 90% | 80% |
+|---|---|---|---|---|
+| HA | arterial flow | all (Rs frozen) | **44.6%** | **54.8%** |
+| PV | total inflow | none | 68.2% | 74.3% |
+| PV | total inflow | classical buffer | 69.0% | 75.2% |
+| PV | total inflow | canonical | 67.4% | 73.5% |
+
+**Interpretation.** (1) The model reproduces the clinical asymmetry: the HA anastomosis is the
+vulnerable one (arterial flow 90% threshold near ~45% narrowing; collapse beyond 60%: art%
+71.0 -> 43.7 -> 13.3 at 60/70/80%), the PV anastomosis tolerates ~68-75% narrowing -- the r^4
+geometry plus the 4x wider calibre. Consistent with HA complications dominating infant LDLT.
+(2) The HABR buffer barely moves the PV 90%-threshold (+0.8 points) because arterial flow is only
+~15% of total inflow, but at deep PV stenosis the classical buffer produces marked arterial
+hyperaemia (art% 130 at 80%, 165 at 90% narrowing; PSV_HA up to 97.4 cm/s) -- a Doppler-visible
+HABR signature during portal inflow obstruction. The canonical arm does the opposite (art% 45-76).
+(3) Distal HA PSV falls with narrowing (59.6 -> 51.7 -> 26.4 -> 8.0 cm/s at 0/50/70/80%) -- a
+parvus/tardus-like pattern; the model's PSV here is indicative (5-state waveform shape is the
+generic default, not the POD1 anchored family).
+
+**Caveats.** Thresholds scale linearly with the assumed anastomosis length and viscosity (infant
+post-op polycythaemia shifts HA thresholds DOWN); no remodelling/collaterals; fixed structure;
+the HABR sign question of Sections 22-23 applies (classical arm used for the tolerance question,
+canonical shown as contrast); %-results insensitive to the mL/min vs /100g labelling ambiguity.
+
+Files: `anastomosis_stenosis_sweep.py` (new), `stenosis_sweep_figure.png` (new),
+`../parameter_table.md` Section 7 updated.
