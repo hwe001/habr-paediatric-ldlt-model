@@ -134,3 +134,8 @@ kind appears anywhere in this codebase.
 ## License
 
 MIT (code only; see `LICENSE`).
+
+## Additional sensitivity analyses
+
+`sensitivity_analyses/` contains the scripts for the HABR-coefficient, assumed-parameter and RI analyses
+added in the revision for Medical Engineering & Physics; see `sensitivity_analyses/README.md`.
